@@ -6,7 +6,9 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from transformers import pipeline
 
-# Streamlit page config
+# -----------------------------
+# Streamlit page setup
+# -----------------------------
 st.set_page_config(page_title="AI Personal Finance Assistant", layout="wide")
 st.title("💰 AI Personal Finance Assistant")
 
@@ -14,10 +16,13 @@ st.title("💰 AI Personal Finance Assistant")
 uploaded_file = st.sidebar.file_uploader("Upload your transactions CSV", type=["csv"])
 qa_question = st.sidebar.text_input("Ask a question about your transactions:")
 
-# Initialize Hugging Face small model (CPU-friendly)
+# -----------------------------
+# Initialize Hugging Face model
+# -----------------------------
 @st.cache_resource
 def get_hf_model():
-    return pipeline("text-generation", model="google/flan-t5-small")  # CPU only
+    # Small CPU-friendly instruction-following model
+    return pipeline("text-generation", model="google/flan-t5-small")
 
 hf_model = get_hf_model()
 
@@ -29,14 +34,24 @@ def call_hf(prompt, max_tokens=200):
         st.error(f"Hugging Face error: {e}")
         return None
 
+# -----------------------------
 # Auto-categorize transactions
+# -----------------------------
 def categorize_transactions(df):
     if 'Category' not in df.columns:
         df['Category'] = ""
     uncategorized = df[df['Category'].isnull() | (df['Category'] == '')]
     if len(uncategorized) == 0:
         return df
-    prompt = "Categorize these transactions:\n" + uncategorized.to_string(index=False)
+
+    table_text = uncategorized.to_string(index=False)
+    prompt = (
+        "You are a helpful personal finance assistant. "
+        "Categorize the following transactions into appropriate categories:\n"
+        f"{table_text}\n"
+        "Provide only the category names in the same order, one per line."
+    )
+
     categories = call_hf(prompt, max_tokens=300)
     if categories:
         categories_list = [line.strip() for line in categories.split("\n") if line.strip()]
@@ -47,19 +62,40 @@ def categorize_transactions(df):
         df.loc[uncategorized.index, 'Category'] = "Other"
     return df
 
+# -----------------------------
 # Generate AI insights
+# -----------------------------
 def generate_insights(df):
-    prompt = "Analyze the following transactions and give insights, trends, and money-saving tips:\n" + df.to_string(index=False)
+    preview_df = df.head(20)  # limit rows for small model
+    table_text = preview_df.to_string(index=False)
+    prompt = (
+        "You are a helpful personal finance assistant. "
+        "Analyze the following transactions and provide a concise summary including:\n"
+        "- Main spending categories\n"
+        "- Notable trends\n"
+        "- Suggestions to save money\n\n"
+        f"Transactions:\n{table_text}\n\n"
+        "Provide your insights in simple, clear sentences."
+    )
     insights = call_hf(prompt, max_tokens=300)
     return insights if insights else "No insights generated."
 
-# Answer user Q&A
+# -----------------------------
+# Answer Q&A
+# -----------------------------
 def answer_question(df, question):
-    prompt = f"Transactions:\n{df.to_string(index=False)}\nAnswer the question: {question}"
+    preview_df = df.head(20)
+    table_text = preview_df.to_string(index=False)
+    prompt = (
+        f"You are a personal finance assistant. "
+        f"Based on these transactions:\n{table_text}\nAnswer this question: {question}"
+    )
     answer = call_hf(prompt, max_tokens=150)
     return answer if answer else "No answer generated."
 
+# -----------------------------
 # Create PDF report
+# -----------------------------
 def create_pdf(df, insights):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
@@ -81,7 +117,9 @@ def create_pdf(df, insights):
     buffer.seek(0)
     return buffer.getvalue()
 
+# -----------------------------
 # Main logic
+# -----------------------------
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
     st.subheader("📊 Transactions Data")
