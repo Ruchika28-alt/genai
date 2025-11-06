@@ -4,24 +4,37 @@ import plotly.express as px
 import io
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
-import google.generativeai as genai
+import openai
 
 # Streamlit page config
 st.set_page_config(page_title="AI Personal Finance Assistant", layout="wide")
 st.title("💰 AI Personal Finance Assistant")
 
 # Sidebar Inputs
-google_api_key = st.sidebar.text_input("Enter your Google API Key (Gemini):", type="password")
+openai_api_key = st.sidebar.text_input("Enter your OpenAI API Key:", type="password")
 uploaded_file = st.sidebar.file_uploader("Upload your transactions CSV", type=["csv"])
 qa_question = st.sidebar.text_input("Ask a question about your transactions:")
 
-# Configure GenAI model
-def configure_genai(api_key):
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel("models/gemini-2.5-pro")
+# Configure OpenAI API
+def configure_openai(api_key):
+    openai.api_key = api_key
 
-# Auto-categorize transactions safely
-def categorize_transactions(df, model):
+# Helper function to call GPT
+def call_gpt(prompt, max_tokens=300):
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role":"user","content":prompt}],
+            max_tokens=max_tokens,
+            temperature=0.5
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        st.error(f"OpenAI API error: {e}")
+        return None
+
+# Auto-categorize transactions
+def categorize_transactions(df):
     if 'Category' not in df.columns:
         df['Category'] = ""
 
@@ -32,41 +45,29 @@ def categorize_transactions(df, model):
     prompt = "Categorize these transactions into appropriate categories:\n"
     prompt += uncategorized.to_string(index=False)
 
-    try:
-        response = model.generate_content(prompt)
-        categories = [line.strip() for line in response.text.split("\n") if line.strip()]
-
-        # Ensure correct length
-        if len(categories) != len(uncategorized):
-            categories = ["Other"] * len(uncategorized)
-
-        df.loc[uncategorized.index, 'Category'] = categories
-    except Exception as e:
-        st.error(f"Error auto-categorizing transactions: {e}")
+    categories = call_gpt(prompt, max_tokens=500)
+    if categories:
+        categories_list = [line.strip() for line in categories.split("\n") if line.strip()]
+        if len(categories_list) != len(uncategorized):
+            categories_list = ["Other"] * len(uncategorized)
+        df.loc[uncategorized.index, 'Category'] = categories_list
+    else:
         df.loc[uncategorized.index, 'Category'] = "Other"
 
     return df
 
 # Generate AI insights
-def generate_insights(df, model):
-    prompt = "You are a personal finance assistant. Analyze the following transactions and generate a concise summary with insights, trends, and money-saving tips:\n\n"
+def generate_insights(df):
+    prompt = "Analyze the following transactions and generate a concise summary with insights, trends, and money-saving tips:\n"
     prompt += df.to_string(index=False)
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        st.error(f"Gemini API error: {e}")
-        return "No insights generated."
+    insights = call_gpt(prompt, max_tokens=500)
+    return insights if insights else "No insights generated."
 
 # Answer user Q&A
-def answer_question(df, question, model):
-    prompt = f"You are a personal finance assistant. Based on these transactions:\n{df.to_string(index=False)}\nAnswer the question: {question}"
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        st.error(f"Gemini API error: {e}")
-        return "No answer generated."
+def answer_question(df, question):
+    prompt = f"Based on these transactions:\n{df.to_string(index=False)}\nAnswer the question: {question}"
+    answer = call_gpt(prompt, max_tokens=300)
+    return answer if answer else "No answer generated."
 
 # Create PDF report
 def create_pdf(df, insights):
@@ -91,16 +92,16 @@ def create_pdf(df, insights):
     return buffer.getvalue()
 
 # Main logic
-if uploaded_file and google_api_key:
+if uploaded_file and openai_api_key:
     df = pd.read_csv(uploaded_file)
 
     st.subheader("📊 Transactions Data")
     st.dataframe(df)
 
-    model = configure_genai(google_api_key)
+    configure_openai(openai_api_key)
 
-    # Auto-categorize uncategorized transactions
-    df = categorize_transactions(df, model)
+    # Auto-categorize
+    df = categorize_transactions(df)
 
     # Ensure proper columns
     if 'Amount' not in df.columns:
@@ -134,7 +135,7 @@ if uploaded_file and google_api_key:
 
     # Generate AI Insights
     if st.button("Generate AI Insights"):
-        insights = generate_insights(df, model)
+        insights = generate_insights(df)
         st.subheader("📝 AI Insights")
         st.write(insights)
 
@@ -144,9 +145,9 @@ if uploaded_file and google_api_key:
 
     # Q&A Section
     if qa_question:
-        answer = answer_question(df, qa_question, model)
+        answer = answer_question(df, qa_question)
         st.subheader("❓ Answer")
         st.write(answer)
 
 else:
-    st.info("Upload a CSV and enter your Google API Key to start.")
+    st.info("Upload a CSV and enter your OpenAI API Key to start.")
