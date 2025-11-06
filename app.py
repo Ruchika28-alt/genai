@@ -6,6 +6,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 import google.generativeai as genai
 
+# Streamlit page config
 st.set_page_config(page_title="AI Personal Finance Assistant", layout="wide")
 st.title("💰 AI Personal Finance Assistant")
 
@@ -14,52 +15,73 @@ google_api_key = st.sidebar.text_input("Enter your Google API Key (Gemini):", ty
 uploaded_file = st.sidebar.file_uploader("Upload your transactions CSV", type=["csv"])
 qa_question = st.sidebar.text_input("Ask a question about your transactions:")
 
-# Configure GenAI
+# Configure GenAI model
 def configure_genai(api_key):
     genai.configure(api_key=api_key)
     return genai.GenerativeModel("models/gemini-2.5-pro")
 
-# Auto-categorize uncategorized transactions
+# Auto-categorize transactions safely
 def categorize_transactions(df, model):
+    # Ensure 'Category' column exists
+    if 'Category' not in df.columns:
+        df['Category'] = ""
+
     uncategorized = df[df['Category'].isnull() | (df['Category'] == '')]
     if len(uncategorized) == 0:
         return df
+
     prompt = "Categorize these transactions into appropriate categories:\n"
     prompt += uncategorized.to_string(index=False)
-    response = model.generate_content(prompt)
-    categories = [line.split(":")[1].strip() if ":" in line else "Other" for line in response.text.split("\n") if line.strip()]
-    df.loc[uncategorized.index, 'Category'] = categories
+
+    try:
+        response = model.generate_content(prompt)
+        categories = [
+            line.split(":")[1].strip() if ":" in line else "Other"
+            for line in response.text.split("\n") if line.strip()
+        ]
+        df.loc[uncategorized.index, 'Category'] = categories
+    except Exception as e:
+        st.error(f"Error auto-categorizing transactions: {e}")
+
     return df
 
 # Generate AI insights
 def generate_insights(df, model):
     prompt = "You are a personal finance assistant. Analyze the following transactions and generate a concise summary with insights, trends, and money-saving tips:\n\n"
     prompt += df.to_string(index=False)
-    response = model.generate_content(prompt)
-    return response.text
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        st.error(f"Gemini API error: {e}")
+        return "No insights generated."
 
-# Answer Q&A
+# Answer user Q&A
 def answer_question(df, question, model):
     prompt = f"You are a personal finance assistant. Based on these transactions:\n{df.to_string(index=False)}\nAnswer the question: {question}"
-    response = model.generate_content(prompt)
-    return response.text
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        st.error(f"Gemini API error: {e}")
+        return "No answer generated."
 
-# PDF report
+# Create PDF report
 def create_pdf(df, insights):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     c.drawString(72, 800, "Personal Finance Report")
     text = c.beginText(40, 780)
     text.setFont("Helvetica", 12)
-    
+
     text.textLine("Transactions Summary:")
     for line in df.to_string(index=False).split('\n'):
         text.textLine(line)
-    
+
     text.textLine("\nAI Insights:")
     for line in insights.split('\n'):
         text.textLine(line)
-    
+
     c.drawText(text)
     c.showPage()
     c.save()
@@ -69,14 +91,15 @@ def create_pdf(df, insights):
 # Main logic
 if uploaded_file and google_api_key:
     df = pd.read_csv(uploaded_file)
+
     st.subheader("📊 Transactions Data")
     st.dataframe(df)
 
     model = configure_genai(google_api_key)
 
-    # Auto-categorize
+    # Auto-categorize uncategorized transactions
     df = categorize_transactions(df, model)
-    
+
     # Trend Charts
     if 'Date' in df.columns:
         df['Date'] = pd.to_datetime(df['Date'])
@@ -108,8 +131,11 @@ if uploaded_file and google_api_key:
         pdf_bytes = create_pdf(df, insights)
         st.download_button("Download PDF Report", data=pdf_bytes, file_name="Finance_Report.pdf", mime="application/pdf")
 
-    # Q&A
+    # Q&A Section
     if qa_question:
         answer = answer_question(df, qa_question, model)
         st.subheader("❓ Answer")
         st.write(answer)
+else:
+    st.info("Upload a CSV and enter your Google API Key to start.")
+
