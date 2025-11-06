@@ -19,14 +19,14 @@ qa_question = st.sidebar.text_input("Ask a question about your transactions:")
 def configure_openai(api_key):
     openai.api_key = api_key
 
-# Helper function to call GPT
+# Helper function to call GPT-3.5 Turbo
 def call_gpt(prompt, max_tokens=300):
     try:
-        response = openai.ChatCompletion.create(
+        response = openai.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role":"user","content":prompt}],
-            max_tokens=max_tokens,
-            temperature=0.5
+            temperature=0.5,
+            max_tokens=max_tokens
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -106,48 +106,48 @@ if uploaded_file and openai_api_key:
     # Ensure proper columns
     if 'Amount' not in df.columns:
         st.error("CSV must contain 'Amount' column")
-    if 'Date' in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-        df = df.dropna(subset=['Date', 'Amount'])
-        df['Week'] = df['Date'].dt.isocalendar().week
-        df['Month'] = df['Date'].dt.to_period('M').astype(str)
+    else:
+        if 'Date' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+            df = df.dropna(subset=['Date', 'Amount'])
+            df['Week'] = df['Date'].dt.isocalendar().week
+            df['Month'] = df['Date'].dt.to_period('M').astype(str)
 
-        # Weekly Spending Chart
-        weekly = df.groupby('Week')['Amount'].sum().reset_index()
-        if not weekly.empty:
-            fig_week = px.line(weekly, x='Week', y='Amount', title="Weekly Spending")
-            st.plotly_chart(fig_week, use_container_width=True)
+            # Weekly Spending Chart
+            weekly = df.groupby('Week')['Amount'].sum().reset_index()
+            if not weekly.empty:
+                fig_week = px.line(weekly, x='Week', y='Amount', title="Weekly Spending")
+                st.plotly_chart(fig_week, use_container_width=True)
 
-        # Monthly Spending Chart
-        monthly = df.groupby('Month')['Amount'].sum().reset_index()
-        if not monthly.empty:
-            fig_month = px.line(monthly, x='Month', y='Amount', title="Monthly Spending")
-            st.plotly_chart(fig_month, use_container_width=True)
+            # Monthly Spending Chart
+            monthly = df.groupby('Month')['Amount'].sum().reset_index()
+            if not monthly.empty:
+                fig_month = px.line(monthly, x='Month', y='Amount', title="Monthly Spending")
+                st.plotly_chart(fig_month, use_container_width=True)
 
-    # Category Spending Chart
-    if 'Category' not in df.columns:
-        df['Category'] = "Other"
-    if 'Amount' in df.columns:
+        # Category Spending Chart
+        if 'Category' not in df.columns:
+            df['Category'] = "Other"
         cat_df = df.groupby('Category')['Amount'].sum().reset_index()
         if not cat_df.empty:
             cat_fig = px.bar(cat_df, x='Category', y='Amount', title="Spending by Category")
             st.plotly_chart(cat_fig, use_container_width=True)
 
-    # Generate AI Insights
-    if st.button("Generate AI Insights"):
-        insights = generate_insights(df)
-        st.subheader("📝 AI Insights")
-        st.write(insights)
+        # Generate AI Insights
+        if st.button("Generate AI Insights"):
+            insights = generate_insights(df)
+            st.subheader("📝 AI Insights")
+            st.write(insights)
 
-        # PDF download
-        pdf_bytes = create_pdf(df, insights)
-        st.download_button("Download PDF Report", data=pdf_bytes, file_name="Finance_Report.pdf", mime="application/pdf")
+            # PDF download
+            pdf_bytes = create_pdf(df, insights)
+            st.download_button("Download PDF Report", data=pdf_bytes, file_name="Finance_Report.pdf", mime="application/pdf")
 
-    # Q&A Section
-    if qa_question:
-        answer = answer_question(df, qa_question)
-        st.subheader("❓ Answer")
-        st.write(answer)
+        # Q&A Section
+        if qa_question:
+            answer = answer_question(df, qa_question)
+            st.subheader("❓ Answer")
+            st.write(answer)
 
 else:
     st.info("Upload a CSV and enter your OpenAI API Key to start.")
