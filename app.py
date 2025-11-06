@@ -22,7 +22,6 @@ def configure_genai(api_key):
 
 # Auto-categorize transactions safely
 def categorize_transactions(df, model):
-    # Ensure 'Category' column exists
     if 'Category' not in df.columns:
         df['Category'] = ""
 
@@ -35,13 +34,16 @@ def categorize_transactions(df, model):
 
     try:
         response = model.generate_content(prompt)
-        categories = [
-            line.split(":")[1].strip() if ":" in line else "Other"
-            for line in response.text.split("\n") if line.strip()
-        ]
+        categories = [line.strip() for line in response.text.split("\n") if line.strip()]
+
+        # Ensure correct length
+        if len(categories) != len(uncategorized):
+            categories = ["Other"] * len(uncategorized)
+
         df.loc[uncategorized.index, 'Category'] = categories
     except Exception as e:
         st.error(f"Error auto-categorizing transactions: {e}")
+        df.loc[uncategorized.index, 'Category'] = "Other"
 
     return df
 
@@ -102,23 +104,31 @@ if uploaded_file and google_api_key:
 
     # Trend Charts
     if 'Date' in df.columns:
-        df['Date'] = pd.to_datetime(df['Date'])
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
         df['Week'] = df['Date'].dt.isocalendar().week
         df['Month'] = df['Date'].dt.to_period('M').astype(str)
 
         # Weekly Spending
-        weekly = df.groupby('Week')['Amount'].sum().reset_index()
-        fig_week = px.line(weekly, x='Week', y='Amount', title="Weekly Spending")
-        st.plotly_chart(fig_week, use_container_width=True)
+        if 'Amount' in df.columns:
+            weekly = df.groupby('Week')['Amount'].sum().reset_index()
+            fig_week = px.line(weekly, x='Week', y='Amount', title="Weekly Spending")
+            st.plotly_chart(fig_week, use_container_width=True)
 
-        # Monthly Spending
-        monthly = df.groupby('Month')['Amount'].sum().reset_index()
-        fig_month = px.line(monthly, x='Month', y='Amount', title="Monthly Spending")
-        st.plotly_chart(fig_month, use_container_width=True)
+            # Monthly Spending
+            monthly = df.groupby('Month')['Amount'].sum().reset_index()
+            fig_month = px.line(monthly, x='Month', y='Amount', title="Monthly Spending")
+            st.plotly_chart(fig_month, use_container_width=True)
 
     # Category Spending
-    if 'Category' in df.columns:
-        cat_fig = px.bar(df.groupby('Category')['Amount'].sum().reset_index(), x='Category', y='Amount', title="Spending by Category")
+    if 'Category' not in df.columns:
+        df['Category'] = "Other"
+    if 'Amount' in df.columns:
+        cat_fig = px.bar(
+            df.groupby('Category')['Amount'].sum().reset_index(),
+            x='Category',
+            y='Amount',
+            title="Spending by Category"
+        )
         st.plotly_chart(cat_fig, use_container_width=True)
 
     # Generate AI Insights
@@ -138,4 +148,3 @@ if uploaded_file and google_api_key:
         st.write(answer)
 else:
     st.info("Upload a CSV and enter your Google API Key to start.")
-
