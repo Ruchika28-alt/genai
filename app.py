@@ -102,34 +102,35 @@ if uploaded_file and google_api_key:
     # Auto-categorize uncategorized transactions
     df = categorize_transactions(df, model)
 
-    # Trend Charts
+    # Ensure proper columns
+    if 'Amount' not in df.columns:
+        st.error("CSV must contain 'Amount' column")
     if 'Date' in df.columns:
         df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        df = df.dropna(subset=['Date', 'Amount'])
         df['Week'] = df['Date'].dt.isocalendar().week
         df['Month'] = df['Date'].dt.to_period('M').astype(str)
 
-        # Weekly Spending
-        if 'Amount' in df.columns:
-            weekly = df.groupby('Week')['Amount'].sum().reset_index()
+        # Weekly Spending Chart
+        weekly = df.groupby('Week')['Amount'].sum().reset_index()
+        if not weekly.empty:
             fig_week = px.line(weekly, x='Week', y='Amount', title="Weekly Spending")
             st.plotly_chart(fig_week, use_container_width=True)
 
-            # Monthly Spending
-            monthly = df.groupby('Month')['Amount'].sum().reset_index()
+        # Monthly Spending Chart
+        monthly = df.groupby('Month')['Amount'].sum().reset_index()
+        if not monthly.empty:
             fig_month = px.line(monthly, x='Month', y='Amount', title="Monthly Spending")
             st.plotly_chart(fig_month, use_container_width=True)
 
-    # Category Spending
+    # Category Spending Chart
     if 'Category' not in df.columns:
         df['Category'] = "Other"
     if 'Amount' in df.columns:
-        cat_fig = px.bar(
-            df.groupby('Category')['Amount'].sum().reset_index(),
-            x='Category',
-            y='Amount',
-            title="Spending by Category"
-        )
-        st.plotly_chart(cat_fig, use_container_width=True)
+        cat_df = df.groupby('Category')['Amount'].sum().reset_index()
+        if not cat_df.empty:
+            cat_fig = px.bar(cat_df, x='Category', y='Amount', title="Spending by Category")
+            st.plotly_chart(cat_fig, use_container_width=True)
 
     # Generate AI Insights
     if st.button("Generate AI Insights"):
@@ -146,5 +147,6 @@ if uploaded_file and google_api_key:
         answer = answer_question(df, qa_question, model)
         st.subheader("❓ Answer")
         st.write(answer)
+
 else:
     st.info("Upload a CSV and enter your Google API Key to start.")
