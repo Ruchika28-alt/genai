@@ -14,16 +14,16 @@ st.title("💰 AI Personal Finance Assistant")
 uploaded_file = st.sidebar.file_uploader("Upload your transactions CSV", type=["csv"])
 qa_question = st.sidebar.text_input("Ask a question about your transactions:")
 
-# Initialize HF text generation pipeline
+# Initialize Hugging Face small model (CPU-friendly)
 @st.cache_resource
 def get_hf_model():
-    return pipeline("text-generation", model="tiiuae/falcon-7b-instruct", device=0 if st.runtime.exists("cuda") else -1)
+    return pipeline("text-generation", model="google/flan-t5-small")  # CPU only
 
 hf_model = get_hf_model()
 
-def call_hf(prompt, max_tokens=300):
+def call_hf(prompt, max_tokens=200):
     try:
-        result = hf_model(prompt, max_new_tokens=max_tokens, do_sample=True)
+        result = hf_model(prompt, max_new_tokens=max_tokens)
         return result[0]['generated_text']
     except Exception as e:
         st.error(f"Hugging Face error: {e}")
@@ -37,7 +37,7 @@ def categorize_transactions(df):
     if len(uncategorized) == 0:
         return df
     prompt = "Categorize these transactions:\n" + uncategorized.to_string(index=False)
-    categories = call_hf(prompt, max_tokens=500)
+    categories = call_hf(prompt, max_tokens=300)
     if categories:
         categories_list = [line.strip() for line in categories.split("\n") if line.strip()]
         if len(categories_list) != len(uncategorized):
@@ -49,14 +49,14 @@ def categorize_transactions(df):
 
 # Generate AI insights
 def generate_insights(df):
-    prompt = "Analyze the following transactions and give insights and money-saving tips:\n" + df.to_string(index=False)
-    insights = call_hf(prompt, max_tokens=500)
+    prompt = "Analyze the following transactions and give insights, trends, and money-saving tips:\n" + df.to_string(index=False)
+    insights = call_hf(prompt, max_tokens=300)
     return insights if insights else "No insights generated."
 
 # Answer user Q&A
 def answer_question(df, question):
     prompt = f"Transactions:\n{df.to_string(index=False)}\nAnswer the question: {question}"
-    answer = call_hf(prompt, max_tokens=300)
+    answer = call_hf(prompt, max_tokens=150)
     return answer if answer else "No answer generated."
 
 # Create PDF report
@@ -66,12 +66,15 @@ def create_pdf(df, insights):
     c.drawString(72, 800, "Personal Finance Report")
     text = c.beginText(40, 780)
     text.setFont("Helvetica", 12)
+
     text.textLine("Transactions Summary:")
     for line in df.to_string(index=False).split("\n"):
         text.textLine(line)
+
     text.textLine("\nAI Insights:")
     for line in insights.split("\n"):
         text.textLine(line)
+
     c.drawText(text)
     c.showPage()
     c.save()
@@ -84,8 +87,10 @@ if uploaded_file:
     st.subheader("📊 Transactions Data")
     st.dataframe(df)
 
+    # Categorize transactions
     df = categorize_transactions(df)
 
+    # Trend Charts
     if 'Amount' in df.columns:
         if 'Date' in df.columns:
             df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
@@ -97,12 +102,14 @@ if uploaded_file:
             monthly = df.groupby('Month')['Amount'].sum().reset_index()
             fig_month = px.line(monthly, x='Month', y='Amount', title="Monthly Spending")
             st.plotly_chart(fig_month, use_container_width=True)
+
         if 'Category' not in df.columns:
             df['Category'] = "Other"
         cat_df = df.groupby('Category')['Amount'].sum().reset_index()
         cat_fig = px.bar(cat_df, x='Category', y='Amount', title="Spending by Category")
         st.plotly_chart(cat_fig, use_container_width=True)
 
+    # Generate AI Insights
     if st.button("Generate AI Insights"):
         insights = generate_insights(df)
         st.subheader("📝 AI Insights")
@@ -110,6 +117,7 @@ if uploaded_file:
         pdf_bytes = create_pdf(df, insights)
         st.download_button("Download PDF Report", data=pdf_bytes, file_name="Finance_Report.pdf", mime="application/pdf")
 
+    # Q&A Section
     if qa_question:
         answer = answer_question(df, qa_question)
         st.subheader("❓ Answer")
